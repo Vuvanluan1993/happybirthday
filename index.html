@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Heart Shooter Game</title>
+  <style>
+    canvas {
+      background: #fce4ec;
+      display: block;
+      margin: 0 auto;
+    }
+    #startButton {
+      display: block;
+      margin: 20px auto;
+      font-size: 24px;
+      padding: 10px 30px;
+    }
+    #instructions {
+      text-align: center;
+      font-family: sans-serif;
+    }
+  </style>
+</head>
+<body>
+  <div id="instructions">
+    <p><strong>Hướng dẫn cách chơi:</strong><br>
+    Hãy bấm phím cách để bắn trái tim vào Boss,<br>
+    bấm phím mũi tên để di chuyển sang trái, sang phải.</p>
+  </div>
+  <button id="startButton">START</button>
+  <canvas id="gameCanvas" width="300" height="400"></canvas>
+
+  <script>
+  const bulletSound = new Audio("bullet.mp3");
+  const birthdaySound = new Audio("happybirthday.mp3");
+  let birthdayPlayed = false;
+
+  const canvas = document.getElementById("gameCanvas");
+  const ctx = canvas.getContext("2d");
+  const startButton = document.getElementById("startButton");
+
+  const playerImg = new Image();
+  playerImg.src = "player.png";
+  const bossImg = new Image();
+  bossImg.src = "boss.png";
+  const boss2Img = new Image();
+  boss2Img.src = "boss2.png";
+
+  let gameRunning = false;
+  let keys = {};
+  let bullets = [];
+  let bossBullets = [];
+  let cooldown = false;
+  let stunned = false;
+  let stunTimer = 0;
+  let bossPhase = 1;
+  let bossHealth = 10;
+  let fireworks = [];
+
+  const player = {
+    x: canvas.width / 2 - 20,
+    y: canvas.height - 120,
+    width: 40,
+    height: 100,
+    vx: 0
+  };
+
+  const boss = {
+    x: canvas.width / 2 - 37.5,
+    y: 30,
+    width: 75,
+    height: 75,
+    vx: 1.5,
+    vy: 1,
+    wiggle: 0
+  };
+
+  function drawPlayer() {
+    ctx.drawImage(playerImg, player.x, player.y, player.width, player.height);
+  }
+
+  function drawBoss() {
+    ctx.save();
+    let bx = boss.x;
+    let by = boss.y;
+    let bw = boss.width;
+    let bh = boss.height;
+
+    if (bossPhase === 2) {
+      bw *= 2;
+      bh *= 2;
+      bx = canvas.width / 2 - bw / 2;
+      by = canvas.height / 2 - bh / 2;
+    }
+
+    ctx.translate(bx + bw / 2, by + bh / 2);
+    ctx.rotate(Math.sin(boss.wiggle) * 0.05);
+    ctx.translate(-bw / 2, -bh / 2);
+    ctx.drawImage(bossPhase === 1 ? bossImg : boss2Img, 0, 0, bw, bh);
+    ctx.restore();
+
+    // HP bar only if bossPhase 1
+    if (bossPhase === 1) {
+      ctx.fillStyle = "red";
+      ctx.fillRect(boss.x, boss.y - 10, bossHealth * 7.5, 6);
+      ctx.strokeStyle = "black";
+      ctx.strokeRect(boss.x, boss.y - 10, 75, 6);
+    }
+  }
+
+  function drawBullets() {
+    bullets.forEach(b => {
+      drawHeart(b.x, b.y, 30);
+    });
+  }
+
+  function drawHeart(x, y, size) {
+    ctx.save();
+    ctx.beginPath();
+    const topCurveHeight = size * 0.3;
+    ctx.moveTo(x, y + topCurveHeight);
+    ctx.bezierCurveTo(x, y, x - size / 2, y, x - size / 2, y + topCurveHeight);
+    ctx.bezierCurveTo(x - size / 2, y + size / 1.2, x, y + size, x, y + size);
+    ctx.bezierCurveTo(x, y + size, x + size / 2, y + size / 1.2, x + size / 2, y + topCurveHeight);
+    ctx.bezierCurveTo(x + size / 2, y, x, y, x, y + topCurveHeight);
+    ctx.closePath();
+    ctx.fillStyle = "#ff4081";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawBossBullets() {
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillStyle = "purple";
+    bossBullets.forEach(b => {
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.scale(b.scale, b.scale);
+      ctx.fillText("OE OE", 0, 0);
+      ctx.restore();
+    });
+  }
+
+  function updatePlayer() {
+    if (stunned) {
+      stunTimer -= 1;
+      if (stunTimer <= 0) stunned = false;
+      return;
+    }
+    if (keys["ArrowLeft"]) player.vx -= 0.5;
+    if (keys["ArrowRight"]) player.vx += 0.5;
+    player.vx *= 0.9;
+    player.x += player.vx;
+    player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+  }
+
+  function updateBoss() {
+    boss.x += boss.vx;
+    boss.y += boss.vy;
+    if (boss.x < 0 || boss.x + boss.width > canvas.width) boss.vx *= -1;
+    if (boss.y < 0 || boss.y + boss.height > canvas.height / 2) boss.vy *= -1;
+    boss.wiggle += 0.1;
+    if (Math.random() < 0.01 && bossPhase === 1) {
+      bossBullets.push({ x: boss.x + boss.width / 2, y: boss.y + boss.height, scale: 0.5 });
+    }
+  }
+
+  function updateBullets() {
+    bullets = bullets.filter(b => b.y > 0);
+    bullets.forEach(b => b.y -= 8);
+  }
+
+  function updateBossBullets() {
+    bossBullets = bossBullets.filter(b => b.y < canvas.height);
+    bossBullets.forEach(b => {
+      b.y += 4;
+      b.scale += 0.01;
+      if (!stunned && b.x > player.x && b.x < player.x + player.width && b.y > player.y && b.y < player.y + player.height) {
+        stunned = true;
+        stunTimer = 120;
+      }
+    });
+  }
+
+  function checkCollisions() {
+    bullets.forEach((b, i) => {
+      if (b.x > boss.x && b.x < boss.x + boss.width &&
+          b.y > boss.y && b.y < boss.y + boss.height) {
+        bullets.splice(i, 1);
+        bossHealth--;
+        if (bossHealth <= 0 && bossPhase === 1) {
+          bossPhase = 2;
+          bullets = [];
+          bossBullets = [];
+          keys = {};
+          if (!birthdayPlayed) {
+            birthdaySound.play();
+            birthdayPlayed = true;
+          }
+          showFireworks();
+        }
+      }
+    });
+  }
+
+  function showFireworks() {
+    for (let i = 0; i < 100; i++) {
+      fireworks.push({
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        vx: Math.random() * 6 - 3,
+        vy: Math.random() * 6 - 3,
+        life: 60
+      });
+    }
+  }
+
+  function drawFireworks() {
+    fireworks.forEach(f => {
+      ctx.fillStyle = "#ff4081";
+      ctx.fillRect(f.x, f.y, 2, 2);
+      f.x += f.vx;
+      f.y += f.vy;
+      f.life--;
+    });
+    fireworks = fireworks.filter(f => f.life > 0);
+    if (fireworks.length > 0) {
+      ctx.font = "bold 24px sans-serif";
+      ctx.fillStyle = "gold";
+      ctx.textAlign = "center";
+      ctx.fillText("Happy Birthday!!!", canvas.width / 2, canvas.height / 2);
+    }
+  }
+
+  function gameLoop() {
+    if (!gameRunning) return;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (bossPhase === 2) {
+      boss.wiggle += 0.1;
+      drawBoss();
+      drawFireworks();
+      requestAnimationFrame(gameLoop);
+      return;
+    }
+
+    updatePlayer();
+    updateBoss();
+    updateBullets();
+    updateBossBullets();
+    checkCollisions();
+
+    drawPlayer();
+    drawBoss();
+    drawBullets();
+    drawBossBullets();
+    drawFireworks();
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  document.addEventListener("keydown", e => {
+    keys[e.key] = true;
+    if (e.code === "Space" && !cooldown && !stunned && gameRunning && bossPhase === 1) {
+      bulletSound.currentTime = 0;
+      bulletSound.play();
+      bullets.push({ x: player.x + player.width / 2, y: player.y });
+      cooldown = true;
+      setTimeout(() => cooldown = false, 300);
+    }
+  });
+
+  document.addEventListener("keyup", e => keys[e.key] = false);
+
+  startButton.onclick = () => {
+    gameRunning = true;
+    startButton.style.display = "none";
+    gameLoop();
+  };
+</script>
+
+</body>
+</html>
